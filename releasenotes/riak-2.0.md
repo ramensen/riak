@@ -1,13 +1,388 @@
-# Riak 2.0.1 リリースノート
+# Riak 2.0.5 Release Notes
 
-## クライアント証明書による認証
+## Changes
 
-先日リリースされた2.0以降、Riakでは認証と認可の機能が利用できるようになりました。
+* RIAK-1431 - Adding --format=csv to allow some administrative commands to be output as csv files
+  * [clique/pull/42](https://github.com/basho/clique/pull/42)
+  * [clique/pull/45](https://github.com/basho/clique/pull/45)
 
-2.0.0では誤ったクライアント証明書が受け付けられていましたが、
-この問題は2.0.1で修正されました。
+* Riak-1477 - Sequential tuning
+  Improving leveldb for when a single database (vnode) receives a large write volume. This situation commonly occurs during a Riak handoff operation.
+  * [leveldb/pull/146](https://github.com/basho/leveldb/pull/146)
 
-#### マージ済PR
+* Riak-1493 Add optional timeout for handle_handoff_data callback and improve logging
+  * [riak_core/pull/642](https://github.com/basho/riak_core/pull/642)
+
+## Fixes
+* RIAK-1127 - L0 Realtime connection balancing. N v3 repl realtime connections are chosen randomly which can lead to large imbalances. Previous implementations did a better job of ensuring there was good balance. The goal of this work is to bring that back to v3 realtime replication.
+  * [riak/issues/625](https://github.com/basho/riak/issues/625)
+
+
+* Riak-1455 - If Solr complains that the index exists, update Riak's metadata to reflect it
+  * [yokozuna/pull/444](https://github.com/basho/yokozuna/pull/444)
+
+* Riak-1479 - node_get_fsm_time and node_put_fsm_time stats are incorrect. node_get_fsm_time and node_put_fsm_time values are an order of magnitude smaller than 2.0.2
+  * [riak_kv/pull/1075](https://github.com/basho/riak_kv/pull/1075)
+
+* Add a log message for when a pipe fitting fails during a map reduce job
+  * [riak_kv/pull/1073](https://github.com/basho/riak_kv/pull/1073)
+  * [riak_pipe/pull/92](https://github.com/basho/riak_pipe/pull/92)
+
+* Fix erroneous tag syntax in rebar.conf for erlydtl depedency of riak_control
+  * [riak_control/pull/183](https://github.com/basho/riak_control/pull/183)
+
+* Fixed parsing of global flags by delegating parsing to clique instead of riak-admin script
+  * [riak/pull/665](https://github.com/basho/riak/pull/665)
+
+* Reduce overload of sink nodes by balancing inbound connections across all nodes, including nodes not up due to network partition.
+  * [riak_repl/pull/651](https://github.com/basho/riak_repl/pull/651)
+
+## RIAK-1482 - Maps and sets incompatibility in 2.0.4
+
+There was an internal format incompatibility introduced in Riak 2.0.4 such that Map and Set datatypes were unreadable if upgraded from 2.0.2 or earlier. Similarly, datatypes modified on a 2.0.4 node would be unreadable by a 2.0.2 or earlier nodes. Clusters in a rolling upgrade state and MDC setups where the source and sink clusters had different versions would also be affected.
+
+Riak 2.0.5 introduces a negotiated capability and manual feature switch so that clusters with mixed versions and MDC setups can continue to operate with different internal representations. When all nodes are upgraded to 2.0.5, the operator can change the feature switch to enable the new format. The feature switch is only necessary in MDC setup; non-replicated clusters can simply do a rolling upgrade.
+
+New 2.0.5 clusters and MDC setups will operate unaffected by this problem using the new internal format.
+
+Instructions for upgrade of MDC setups:
+
+1. On all 2.0.2 or earlier nodes, add the following to the advanced.config file (according to its syntax rules):  
+`[{riak_kv, [{mdc_crdt_epoch, 1}]}].`
+
+2. All nodes can remain up while this change is made. It does not need to take effect until the node is restarted under 2.0.5.
+Upgrade to 2.0.5 in a rolling fashion as recommended by our documentation. 
+3. When all nodes in all datacenters are at version 2.0.5 or later, remove the configuration from advanced.config and execute this snippet on a single node via riak attach:  
+`riak> rpc:multicall(application, set_env, [riak_kv, mdc_crdt_epoch, 2]).`
+
+  * [riak_dt/pull/111](https://github.com/basho/riak_dt/pull/111)
+  * [riak_test/pull/728](https://github.com/basho/riak_test/pull/728)
+  * [riak_kv/pull/1076](https://github.com/basho/riak_kv/pull/1076)
+
+## Known Issues
+
+(Updated 02/27/2015) Yokozuna’s Active Anti-Entropy encounters `badarg` errors when decoding entropy data containing Riak keys that include spaces, documented in Github issues [450](https://github.com/basho/yokozuna/issues/450) and [436](https://github.com/basho/yokozuna/issues/436). The workaround, currently, is to avoid using keys with spaces if you’re using Yokozuna. This issue has been confirmed, and we are working on a patch for affected users.
+
+## Notes on upgrading
+
+Although undocumented, versions of Riak prior to 2.0 did not prevent the use of the Erlang VM's -sname configuration parameter. As of 2.0 this is no longer permitted. Permitted in 2.0 are nodename in riak.conf and -name in vm.args. If you are upgrading from a previous version of Riak to 2.0 and are using -sname in your vm.args, the below steps are required to migrate away from -sname.  
+
+1. Upgrade to Riak 1.4.12.
+2. Back up the ring directory on each node, typically located in /var/lib/riak/ring.
+3. Stop all nodes in your cluster.
+4. Run `riak-admin reip <old_nodename> <new_nodename>|riak-admin Command Line#reip` on each node in your cluster, for each node in your cluster. For example, in a 5 node cluster this will be run 25 total times, 5 times on each node. The <old_nodename> is the current shortname, and the <new_nodename> is the new fully qualified hostname.
+5. Change riak.conf or vm.args, depending on which configuration system you're using, to use the new fully qualified hostname on each node.
+Start each node in your cluster.
+
+## Merged Pull Requests
+* riak_kv/1071: [Reflect error-handling changes in cuttlefish](https://github.com/basho/riak_kv/pull/1071)
+* riak_kv/1075: [The aliases for [riak_kv,vnode,gets|puts,...] were wrong](https://github.com/basho/riak_kv/pull/1075)
+* riak_kv/1076: [Add capability and env_var to control binary format of map/set (riak#667)](https://github.com/basho/riak_kv/pull/1076)
+* eleveldb/132: [Move spec to correct line so we can gen docs](https://github.com/basho/eleveldb/pull/132)
+* riak_core/642: [Add optional timeout for handle_handoff_data callback and improve logging [JIRA: RIAK-1493]](https://github.com/basho/riak_core/pull/642)
+* riak_core/696: [Bump clique to 0.2.5](https://github.com/basho/riak_core/pull/696)
+* yokozuna/438: [Compile bb before misc/bench compile](https://github.com/basho/yokozuna/pull/438)
+* yokozuna/444: [Deal with a Solr Core / Riak Index metadata mismatch](https://github.com/basho/yokozuna/pull/444)
+* clique/37: [Add config formatter support to clique](https://github.com/basho/clique/pull/37)
+* clique/39: [Track pending changes to cuttlefish error handling](https://github.com/basho/clique/pull/39)
+* clique/40: [Allow registration of functions as usage](https://github.com/basho/clique/pull/40)
+* clique/42: [Add CSV formatter and support for other custom formats in general](https://github.com/basho/clique/pull/42)
+* clique/45: [Introduce spec record for args and flags, datatypes, and validators.](https://github.com/basho/clique/pull/45)
+* clique/46: [Print alerts to stderr when using the CSV writer](https://github.com/basho/clique/pull/46)
+* clique/50: [Fix regression that broke --help and --format](https://github.com/basho/clique/pull/50)
+* cuttlefish/180: [Rework error handling to turn errors into smarter nested tuples](https://github.com/basho/cuttlefish/pull/180)
+* riak_dt/111: [Make map/set interoperable with previous versions ](https://github.com/basho/riak_dt/pull/111)
+* riak_repl/653: [Cleanup riak_repl tests to prevent spurious errors](https://github.com/basho/riak_repl/pull/653)
+
+
+# Riak 2.0.4 Release Notes
+
+## Changes
+
+* Improve AAE fullsync by estimating total number of keys. This allows
+    for better sizing of the bloom filter when performing a
+    bloom-fold-based exchange and enhances the adaptive exchange logic
+    that was added previously in Riak 2.0.1. In that version, the new
+    `riak_repl.fullsync_direct_percentage_limit` setting was added,
+    which allowed the limit to be specified as a percentage of total
+    keys rather than as a fixed number.
+  * [riak_repl/623](https://github.com/basho/riak_repl/pull/623)
+  * [riak_core/633](https://github.com/basho/riak_core/pull/633)
+  * [riak_kv/1030](https://github.com/basho/riak_kv/pull/1030)
+* Added `last_fullsync_complete` stat tracking [riak_repl/642](https://github.com/basho/riak_repl/pull/642)
+* Expose AAE tree status in the logs
+    [riak_kv/1056](https://github.com/basho/riak_kv/pull/1056)
+* Improve AAE fullsync by using breadth-first exchange
+  * [riak_kv/1026](https://github.com/basho/riak_kv/pull/1026)
+  * [riak_core/629](https://github.com/basho/riak_core/pull/629)
+* Riak now uses Exometer for collecting metrics and has an improved CLI
+    for finding and displaying them
+  * [riak/651](https://github.com/basho/riak/pull/651)
+  * [riak_api/70](https://github.com/basho/riak_api/pull/70)
+  * [riak_api/71](https://github.com/basho/riak_api/pull/71)
+  * [riak_api/72](https://github.com/basho/riak_api/pull/72)
+  * [riak_core/650](https://github.com/basho/riak_core/pull/650)
+  * [riak_core/654](https://github.com/basho/riak_core/pull/654)
+  * [riak_core/655](https://github.com/basho/riak_core/pull/655)
+  * [riak_core/663](https://github.com/basho/riak_core/pull/663)
+  * [riak_core/665](https://github.com/basho/riak_core/pull/665)
+  * [riak_core/668](https://github.com/basho/riak_core/pull/650)
+  * [riak_kv/1044](https://github.com/basho/riak_kv/pull/1044)
+  * [riak_kv/1048](https://github.com/basho/riak_kv/pull/1048)
+  * [riak_kv/1050](https://github.com/basho/riak_kv/pull/1050)
+  * [riak_kv/1058](https://github.com/basho/riak_kv/pull/1058)
+  * [riak_kv/1059](https://github.com/basho/riak_kv/pull/1059)
+  * [riak_kv/1067](https://github.com/basho/riak_kv/pull/1067)
+  * [riak_pipe/89](https://github.com/basho/riak_pipe/pull/89)
+  * [riak_pipe/90](https://github.com/basho/riak_pipe/pull/90)
+  * [riak_pipe/91](https://github.com/basho/riak_pipe/pull/91)
+  * [riak_search/168](https://github.com/basho/riak_search/pull/168)
+  * [riak_search/169](https://github.com/basho/riak_search/pull/169)
+  * [riak_search/172](https://github.com/basho/riak_search/pull/172)
+  * [yokozuna/434](https://github.com/basho/yokozuna/pull/434)
+  * [yokozuna/435](https://github.com/basho/yokozuna/pull/435)
+  * [yokozuna/440](https://github.com/basho/yokozuna/pull/440)
+  * [yokozuna/441](https://github.com/basho/yokozuna/pull/441)
+  * [riak_ee/296](https://github.com/basho/riak_ee/pull/296)
+* Internal components can process partial configurations as if they were
+    in the global config file. This supports the handoff visibility
+    changes.
+  * [cuttlefish/174](https://github.com/basho/cuttlefish/pull/174)
+* Riak now uses [Clique](https://github.com/basho/clique) for managing
+    CLI commands. The initial commands covered exist to increase
+    visibility into the handoff process and provide Cuttlefish config
+    support from the CLI.
+  * [riak_core/669](https://github.com/basho/riak_core/pull/669)
+  * [riak_core/674](https://github.com/basho/riak_core/pull/674)
+  * [riak_core/675](https://github.com/basho/riak_core/pull/675)
+  * [riak_core/677](https://github.com/basho/riak_core/pull/677)
+  * [riak_core/678](https://github.com/basho/riak_core/pull/678)
+  * [riak_core/679](https://github.com/basho/riak_core/pull/679)
+  * [riak_core/680](https://github.com/basho/riak_core/pull/680)
+  * [riak_core/681](https://github.com/basho/riak_core/pull/681)
+  * [riak_core/682](https://github.com/basho/riak_core/pull/682)
+  * [riak_core/685](https://github.com/basho/riak_core/pull/685)
+  * [riak_core/686](https://github.com/basho/riak_core/pull/686)
+  * [riak_core/692](https://github.com/basho/riak_core/pull/692)
+  * [riak_kv/1068](https://github.com/basho/riak_kv/pull/1068)
+  * [riak_core/695](https://github.com/basho/riak_core/pull/695)
+  * [riak/654](https://github.com/basho/riak/pull/654)
+  * [riak/655](https://github.com/basho/riak/pull/655)
+  * [riak/656](https://github.com/basho/riak/pull/656)
+  * [riak/657](https://github.com/basho/riak/pull/657)
+  * [riak_ee/298](https://github.com/basho/riak_ee/pull/298)
+  * [riak_ee/303](https://github.com/basho/riak_ee/pull/303)
+  * [riak_ee/304](https://github.com/basho/riak_ee/pull/304)
+  * [riak_ee/305](https://github.com/basho/riak_ee/pull/305)
+
+## AAE Fullsync Performance Improvements
+
+In version 2.0.4, a number of improvements to the AAE fullsync feature
+were added, improvements that were initially introduced in Riak version
+1.4.12 but had not yet been introduced into Riak 2.0.x. The following
+improvements have been introduced:
+
+* Data transfers are now pipelined instead of individually acknowledged,
+    in the name of maximizing throughput
+* The code now avoids redundant scans of replcated data. For a
+    replication factor of, say, 3 (i.e. an `n_val` of 3), only a third
+    of the relevant vnodes are scanned.
+* The algorithm is now smarter about small differences
+
+Performing an AAE fullsync operation between two identical clusters is
+very fast. The time it takes to finish an AAE fullsync is much closer to
+linear on the number of differences between the clusters. Below are the
+results of one of our benchmarks. Two 8-node clusters were used, each
+with the following characteristics:
+
+* Each node has 630 GB of SSD storage
+* Each node is running only two vnodes (16-partition ring)
+* 23 million objects per vnode
+* 99% of objects are 8 KB
+* 1% of objects are a mix of 8 KB to 40 MB outliers
+* 450 GB of data on disk per server
+
+The results for each stage of fullsync:
+
+* Empty cluster to empty cluster: 6 seconds
+* Full cluster to empty cluster: 14 hours, 40 minutes
+* 10% changes: 3 hours, 45 minutes
+* 1% changes: 40.5 minutes
+* No changes: 42.5 seconds
+
+## Fixes
+
+* Fix stats process crash if no leader
+    [riak_repl/645](https://github.com/basho/riak_repl/pull/645)
+* Address some minor bugs around establishing SSL connections
+    [riak_repl/644](https://github.com/basho/riak_repl/pull/644)
+* 2.0 port of AAE transient filesystem failures
+    [riak_repl/640](https://github.com/basho/riak_repl/pull/640)
+* Fix error/retry exit counts on location down messages
+    [riak_repl/639](https://github.com/basho/riak_repl/pull/639)
+* Fix deadlock when performing AAE fullsync over SSL (Erlang VM patch)
+* Prevent servers from accepting SSLv3 connections (Erlang VM patch)
+* The map Data Type is now more efficient when merging
+  * [riak_dt/110](https://github.com/basho/riak_dt/pull/110)
+  * [riak_kv/1063](https://github.com/basho/riak_kv/pull/1063)
+  * [riak_kv/1065](https://github.com/basho/riak_kv/pull/1065)
+* Fix a case in which sibling explosion could occur during handoff
+  * [riak_core/672](https://github.com/basho/riak_core/pull/672)
+  * [riak_kv/1062](https://github.com/basho/riak_kv/pull/1062)
+* Special handling for the `net_ticktime` setting in admin scripts
+    [node_package/166](https://github.com/basho/node_package/pull/166)
+* Add a missing function clause in `riak_kv_node` that could result in
+    crashes [riak_core/693](https://github.com/basho/riak_core/pull/693)
+* Avoid timeouts when handoff sender is folding over a large number of
+    keys [riak_core/627](https://github.com/basho/riak_core/pull/627)
+* No more extra work for handoff sender after TCP error makes that work
+    useless [riak_core/626](https://github.com/basho/riak_core/pull/626)
+* Report error when failing to open file instead of crashing when
+    calling `riak_core_util:replace_file/2`
+    [riak_core/646](https://github.com/basho/riak_core/pull/646)
+* Debian package fixes
+  * [node_package/173](https://github.com/basho/node_package/pull/173)
+  * [riak_ee/300](https://github.com/basho/riak_ee/pull/300)
+* Ensure creation of ensembles when strongly consistent bucket types
+    with different `n_val`s from default bucket type do not yet have
+    buckets [riak_kv/1008](https://github.com/basho/riak_kv/pull/1008)
+* Avoid SSL deadlocks that occur when sending data bidirectionally using
+    Erlang SSL sockets. The fix is a patch to the Erlang VM shipped with
+    the build.
+
+## Merged Pull Requests
+
+* bitcask/202: [Unpin cuttlefish from tag](https://github.com/basho/bitcask/pull/202)
+* node_package/166: [add support for custom exit codes to nodetool rpc & friends](https://github.com/basho/node_package/pull/166)
+* node_package/170: [Handle net_ticktime argument specially. Resolves RIAK-1281](https://github.com/basho/node_package/pull/170)
+* node_package/173: [Fixes for debian control template](https://github.com/basho/node_package/pull/173)
+* riak_kv/1008: [Use SC bucket types and buckets to know ensembles](https://github.com/basho/riak_kv/pull/1008)
+* riak_kv/1026: [Update to use new breadth-first AAE exchange](https://github.com/basho/riak_kv/pull/1026)
+* riak_kv/1027: [Attempt to make vnodeids on the same node unique](https://github.com/basho/riak_kv/pull/1027)
+* riak_kv/1030: [Implement key count estimation via AAE trees](https://github.com/basho/riak_kv/pull/1030)
+* riak_kv/1035: [Consuming the vnode_status output in stats was brittle](https://github.com/basho/riak_kv/pull/1035)
+* riak_kv/1044: [Introduce exometer metrics into 2.0](https://github.com/basho/riak_kv/pull/1044)
+* riak_kv/1048: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak_kv/pull/1048)
+* riak_kv/1050: [Add skipped_repairs stat.](https://github.com/basho/riak_kv/pull/1050)
+* riak_kv/1056: [Expose logs about AAE tree status.](https://github.com/basho/riak_kv/pull/1056)
+* riak_kv/1058: [Use exometer_core](https://github.com/basho/riak_kv/pull/1058)
+* riak_kv/1059: [add missing aliases](https://github.com/basho/riak_kv/pull/1059)
+* riak_kv/1062: [Fixes sibling explosion bug caused by forwarding coordination](https://github.com/basho/riak_kv/pull/1062)
+* riak_kv/1063: [Bugfix for precondition_context test failures.](https://github.com/basho/riak_kv/pull/1063)
+* riak_kv/1065: [Fix bug related to riak_dt#110 serialization changes](https://github.com/basho/riak_kv/pull/1065)
+* riak_kv/1067: [Make read-repair stats be 'proplist' instead of 'value'](https://github.com/basho/riak_kv/pull/1067)
+* riak_kv/1068: [Set schema dirs for riak_core in riak_kv_test_util](https://github.com/basho/riak_kv/pull/1068)
+* riak_core/626: [Allow handoff sender to abort handoff by throw'ing from fold fun](https://github.com/basho/riak_core/pull/626)
+* riak_core/627: [Handoff sender sends sync periodically](https://github.com/basho/riak_core/pull/627)
+* riak_core/629: [Add breadth-first AAE exchange](https://github.com/basho/riak_core/pull/629)
+* riak_core/633: [Implement key count estimation via AAE trees](https://github.com/basho/riak_core/pull/633)
+* riak_core/646: [Tell the caller when you fail to open a file, too](https://github.com/basho/riak_core/pull/646)
+* riak_core/650: [Introduce exometer metrics into 2.0](https://github.com/basho/riak_core/pull/650)
+* riak_core/654: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak_core/pull/654)
+* riak_core/655: [add skipped_read_repairs to legacy stat map](https://github.com/basho/riak_core/pull/655)
+* riak_core/663: [use exometer_core instead of exometer](https://github.com/basho/riak_core/pull/663)
+* riak_core/665: [add missing aliases](https://github.com/basho/riak_core/pull/665)
+* riak_core/668: [Replaces feuerlabs/exometer with basho/exometer](https://github.com/basho/riak_core/pull/668)
+* riak_core/669: [Add transfer_limit config callback to handoff_cli](https://github.com/basho/riak_core/pull/669)
+* riak_core/672: [Fixes sibling explosion bug caused by forwarding coordination requests d...](https://github.com/basho/riak_core/pull/672)
+* riak_core/674: [Feature/revised/riak cli handoff status 1239](https://github.com/basho/riak_core/pull/674)
+* riak_core/675: [rename riak_cli to clique](https://github.com/basho/riak_core/pull/675)
+* riak_core/677: [Standardize usage/command registration](https://github.com/basho/riak_core/pull/677)
+* riak_core/678: [Integration/riak admin handoff team](https://github.com/basho/riak_core/pull/678)
+* riak_core/679: [Handle down nodes consistently](https://github.com/basho/riak_core/pull/679)
+* riak_core/680: [Make riak_core_status:active_partitions safe if a node is down.](https://github.com/basho/riak_core/pull/680)
+* riak_core/681: [Cleanup after review](https://github.com/basho/riak_core/pull/681)
+* riak_core/682: [add riak-admin handoff config support](https://github.com/basho/riak_core/pull/682)
+* riak_core/685: [Improve handoff enable/disable config naming](https://github.com/basho/riak_core/pull/685)
+* riak_core/686: [add whitelisted config variables to riak_core_handoff_cli](https://github.com/basho/riak_core/pull/686)
+* riak_core/692: [Allow schema loading with an environment variable](https://github.com/basho/riak_core/pull/692)
+* riak_core/693: [mod_set_forwarding crashes [JIRA: RIAK-1459]](https://github.com/basho/riak_core/pull/693)
+* riak_core/695: [change git url for clique to fix PR #694 [JIRA: RIAK-1460]](https://github.com/basho/riak_core/pull/695)
+* riak/651: [Use exometer_core](https://github.com/basho/riak/pull/651)
+* riak/654: [change riak_cli to clique](https://github.com/basho/riak/pull/654)
+* riak/655: [Add handoff; remove cluster members](https://github.com/basho/riak/pull/655)
+* riak/656: [Add set, show and describe to usage](https://github.com/basho/riak/pull/656)
+* riak/657: [Integration/riak admin handoff team](https://github.com/basho/riak/pull/657)
+* riak_api/66: [Do not treat errors as success](https://github.com/basho/riak_api/pull/66)
+* riak_api/70: [Exometer metrics in 2.0](https://github.com/basho/riak_api/pull/70)
+* riak_api/71: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak_api/pull/71)
+* riak_api/72: [Use exometer_core & exometer aliases](https://github.com/basho/riak_api/pull/72)
+* yokozuna/430: [merged develop into 2.0](https://github.com/basho/yokozuna/pull/430)
+* yokozuna/431: [update-readme-to-up-to-date-riak-version](https://github.com/basho/yokozuna/pull/431)
+* yokozuna/432: [merge dev into 2.0 for test readme updates](https://github.com/basho/yokozuna/pull/432)
+* yokozuna/434: [Introduce exometer metrics into 2.0](https://github.com/basho/yokozuna/pull/434)
+* yokozuna/435: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/yokozuna/pull/435)
+* yokozuna/440: [Use exometer_core & exometer aliases](https://github.com/basho/yokozuna/pull/440)
+* yokozuna/441: [minor alias typo](https://github.com/basho/yokozuna/pull/441)
+* riak_search/168: [Introduce exometer metrics into 2.0](https://github.com/basho/riak_search/pull/168)
+* riak_search/169: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak_search/pull/169)
+* riak_search/172: [Fix dep error in rebar.config](https://github.com/basho/riak_search/pull/172)
+* cuttlefish/165: [Add case for incomplete/syntax-error when parsing conf file.](https://github.com/basho/cuttlefish/pull/165)
+* cuttlefish/166: [Add cuttlefish:warn/1 for use in translations.](https://github.com/basho/cuttlefish/pull/166)
+* cuttlefish/172: [Backport #169 and #171 from develop](https://github.com/basho/cuttlefish/pull/172)
+* cuttlefish/173: [Handle case where advanced.config contains > 1 terms](https://github.com/basho/cuttlefish/pull/173)
+* cuttlefish/174: [Add cuttlefish_generator:minimal_map/2.](https://github.com/basho/cuttlefish/pull/174)
+* riak_dt/110: [Swap orddict for dict in orswot and map](https://github.com/basho/riak_dt/pull/110)
+* riak_pipe/89: [Introduce exometer metrics into 2.0](https://github.com/basho/riak_pipe/pull/89)
+* riak_pipe/90: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak_pipe/pull/90)
+* riak_pipe/91: [Use exometer_core & exometer aliases](https://github.com/basho/riak_pipe/pull/91)
+
+## Added Repositories
+
+* [Clique](https://github.com/basho/clique)
+* [Exometer](https://github.com/basho/exometer_core)
+
+## Known Issues
+
+* Clique can't handle config values with Cuttlefish transformations
+
+## Download
+
+Please see our [downloads](http://docs.basho.com/riak/latest/downloads/)
+page.
+
+## Feedback
+
+We would love to hear from you. You can reach us at any of the following
+links:
+
+* http://lists.basho.com/mailman/listinfo/riak-users_lists.basho.com
+* https://github.com/basho/basho_docs
+* https://github.com/basho/riak
+
+Or via email at **info@basho.com**.
+
+# Riak 2.0.3 Release Notes
+
+## Merged PRs
+* riak/621: [Introduce exometer metrics into 2.0](https://github.com/basho/riak/pull/621)
+* riak/623: [Remove afunix from EXOMETER_PACKAGES.](https://github.com/basho/riak/pull/623)
+* riak/647: [remove afunix from reltool.config](https://github.com/basho/riak/pull/647)
+
+# Riak 2.0.2 Release Notes
+
+## VM Args
+Restore "+scl false", omitted accidentally
+
+## Client certificate authentication
+Add warning about client certificates in 2.0.0
+
+## Merged PRs
+* riak/588: [Add '+sfwi 500' and '+scl false' to riak.conf via cuttlefish](https://github.com/basho/riak/pull/588)
+* riak/601: [Add warning about client certificates in 2.0.0](https://github.com/basho/riak/pull/601)
+* riak/609: [Add note clarifying deprecation vs. termination](https://github.com/basho/riak/pull/609)
+
+# Riak 2.0.1 Release Notes
+
+## Client certificate authentication
+
+As of the recently released 2.0, authentication and authorization
+are now available in Riak.
+
+Under 2.0.0, it was possible that malformed client certificates would
+be accepted. This bug has been corrected with 2.0.1.
+
+## Merged PRs
 
 * bitcask/186: [Bugfix/key transform crash](https://github.com/basho/bitcask/pull/186)
 * bitcask/189: [Refresh efile port if gone](https://github.com/basho/bitcask/pull/189)
@@ -25,159 +400,157 @@
 * riak_repl/619: [Small user experience fixes.](https://github.com/basho/riak_repl/pull/619)
 * riak_repl/620: [Improved AAE fullsync integration/2.0 pull request](https://github.com/basho/riak_repl/pull/620)
 
-# Riak 2.0.0 リリースノート
 
-## 2.0の主な機能と改善
+# Riak 2.0.0 Release Notes
 
-バージョン 2.0 での新機能の一覧と説明は
-[公式ドキュメント](http://docs.basho.com/riak/2.0.0/intro-v20/)
-をご覧ください。関連するドキュメントへのリンクも含まれています。
-また、[Upgrading to 2.0 Guide](http://docs.basho.com/riak/2.0.0/upgrade-v20/)
-もあります。以下は、その技術的な詳細になります。
+## Major Features / Additions to 2.0
 
-### バケットタイプ
+A listing and explanation of new features in version 2.0, along with
+links to relevant documentation, can be found [in our official
+docs](http://docs.basho.com/riak/2.0.0/intro-v20/). You can find an
+[Upgrading to 2.0 Guide](http://docs.basho.com/riak/2.0.0/upgrade-v20/)
+there as well. The material below should be read as a more technical
+supplement to that material.
 
-Riakの以前のバージョンではキーを論理的にグループ化する仕組みとしてバケッ
-トを利用し、特定データの種類とその設定を関連付けていました。Riak 2.0で
-はバケットタイプの追加により、設定とバケットのグループを関連付けます。
-それにより、これはもうひとつの名前空間として振る舞います。
+### Bucket Types
 
-バケットタイプは、その情報をクラスタ内に適切に行き渡らせるため、使用前
-に明示的な作成と有効化が必要であります。この点はバケットと異なります。
-また `consistent` および `datatype` プロパティは作成後の変更ができない
-ので注意して下さい。これらはそれぞれ Strong Consistency と Riak データ
-型に関わる設定で、以下に説明があります。その他のプロパティは変更が可能
-です。バケットタイプでグループ化されたバケットはバケットタイプの全プロ
-パティを継承します。各バケットはプロパティを個別に上書きできますが、上
-書きできないプロパティもいくつか存在します。
+Previous versions of Riak used buckets as a mechanism for logically
+grouping keys and for associating configuration with certain types of
+data. Riak 2.0 adds bucket types, which associate configuration with
+groups of buckets and act as a second level of namespacing.
 
-バケットタイプは `riak-admin bucket-type` コマンドだけから管理できます。
-このコマンドの形式は今後のパッチリリースで変更される可能性があります。
-本リリースではコマンドの操作に対応する API は含まれません。しかし、
-Bucket Properties HTTP API および Protocol Buffers メッセージ、そして
-サポートされたクライアントにはバケットタイプ配下のバケットに対する
-Bucket Propertiesの設定、参照ができるよう更新されています。
+Unlike buckets, bucket types must be explicitly created and activated
+before being used, so that they can be properly gossiped around the
+cluster. In addition, the following properties may not be modifiable
+after creation: `consistent` and `datatype`, corresponding to the strong
+consistency and Riak Data Types features, explained below. Other
+properties may be updated. Buckets grouped under a bucket type inherit
+all of the type's properties. Each bucket may override individual
+properties but some properties cannot be overridden.
 
-バケットタイプに関する詳細は
-[公式ドキュメント](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/)
-をご覧ください。
+Bucket Type administration is only supported via the `riak-admin
+bucket-type` command interface. The format of this command may change in
+an upcoming patch release. This release does not include an API to
+perform these actions. However, the Bucket Properties HTTP API, Protocol
+Buffers messages, and supported clients have been updated to set and
+retrieve bucket properties for a bucket with a given bucket type.
 
-### 収束データ型（Convergent Data Types）
+For more details on bucket types see our [official
+documentation](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/).
 
-Riak 1.4 では結果整合カウンター（eventually consistent conunter）が
-Riakへ追加されました。バージョン 2.0 ではこの成果を踏まえ、更なる収束デー
-タ型(Riak データ型と呼びます)を提供します。これらのデータ型はCRDT[1]で
-あり、豊富でさらに増加しつつある理論的な研究を基にしています。これまで
-の Riak は保存された値を不透明なものとしてだけ扱っていましたが、データ
-型により、その振る舞いから脱却します。Riakはこれらのデータ型について
-「知って」いるのです。具体的には、レプリカの衝突に際して、それを収束さ
-せる規則を知っています。
+### Convergent Data Types
 
-データ型を使うには、まず `counter`、`set`、`map` のいずれかが
-`datatype` プロパティに設定されたバケットタイプが必要です。そして、その
-バケットタイプに紐付くバケットへ保存する必要があります。注意点として、
-そのバケットは `allow_mult` プロパティとして `true` を持つことが必要で
-す。詳細は
-[データ型](http://docs.basho.com/riak/2.0.0/dev/using/data-types/)と
-[バケットタイプ](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/)
-のドキュメントをご覧ください。
+In Riak 1.4, we added an eventually consistent counter to Riak. Version
+2.0 builds on this work to provide more convergent data types (we call
+them Riak Data Types for short). These data types are CRDTs[1], inspired
+by a large and growing base of theoretical research. Data Types are a
+departure from Riak's usual behaviour of treating stored as opaque. Riak
+"knows" about these Data Types, in particular which rules of convergence
+to apply in case of object replica conflicts.
 
-これらのデータ型は通常の`riak_object`に含まれ、
-Riakの値に関するサイズ制限はデータ型に対しても適用されます。
-以下のデータ型が現状で利用可能です。
+All data types must be stored in buckets bearing a bucket type that sets
+the `datatype` property to one of `counter`, `set`, or `map`.  Note that
+the bucket must have the `allow_mult` property set to `true`.  See
+documentation on [Riak Data
+Types](http://docs.basho.com/riak/2.0.0/dev/using/data-types/) and
+[bucket
+types](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/) for
+more details.
+
+These Data Types are wrapped in a regular `riak_object`, so size
+constraints that apply to normal Riak values apply to Riak Data Types
+too. The following Data Types are currently available:
 
 #### Counters
 
-Counterは、型の衝突を起こさないために Riakの新しい `bucket type` 機能を
-利用できることを除いて、1.4 の時と同様に振る舞います。
-ドキュメントは
-[ここ](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Counters).
-にあります。
+Counters behave much like they do in version 1.4, except that you can
+use Riak's new bucket types feature to ensure no type conflicts.
+Documentation on counters can be found
+[here](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Counters).
 
 #### Sets
 
-キーに対して複数の区別できる不透明なバイナリ値の保存ができます。
-使用方法と用語に関しては
-[ドキュメント](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Sets)
-をご覧ください。
-
+Sets allow you to store multiple distinct opaque binary values against a
+key. See the
+[documentation](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Sets)
+for more details on usage and semantics.
 
 #### Maps
 
-Mapはネストされた再帰的な構造体、もしくは連想配列です。これらを複数のデー
-タタイプから構成されるアドホックなデータ構造のコンテナとみなします。
-Mapの内部にはSet、Counter、フラグ（booleanの類似物）、レジスタ（Last
-Write Winsによりバイナリを保存するもの）や他の Map さえ保存できます。使
-用方法と用語に関しては
-[ドキュメント](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Maps)
-をご覧ください。
+Maps are a nested, recursive struct, or associative array. Think of them
+as a container for composing ad hoc data structures from multiple Data
+Types. Inside a map you may store sets, counters, flags (similar to
+booleans), registers (which store binaries according to a
+last-write-wins logic), and even other maps. Please see the
+[documentation](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Maps)
+for usage and semantics.
 
 #### API
 
-データ型はこれまでのRiakの操作からのさらなる脱却をもたらします。
-それは operation based な API を持っているのです。
-これまでは、データ構造を取得し衝突を解消したうえで、その結果を変更し書き戻していましたが、
-Riak に対してデータ型へ適用される操作を伝えることになります。
+Riak Data Types provide a further departure from Riak's usual mode of
+operation in that the API is operation based. Rather than fetching the
+data structure, reconciling conflicts, mutating the result, and writing
+it back, you instead tell Riak what operations to perform on the Data
+Type. Here are some example operations:
 
-操作の例をいくつか紹介します：
-
-* "counterを10だけ増やす"
-* "setへ'joe'を追加する",
-* "Mapから 'friends' と呼ばれるSetのフィールドを削除する"
-* "Mapの内にある `prepay` フラグを `true` へセットする"
-
+* "increment counter by 10"
+* "add 'joe' to set",
+* "remove the Set field called 'friends' from the Map"
+* "set the `prepay` flag to `true` in the Map"
 
 ##### Context
 
-データ型を正確に動かすには read によって得た不透明な context を次の場合に
-_返さなければなりません_。
+In order for Riak Data Types to behave well, you _must_ return the
+opaque context received from a read when you:
 
-* フラグを `false` へ設定した
-* Mapからフィールドを削除した
-* Setから要素を削除した
+* Set a flag to `false`
+* Remove a field from a Map
+* Remove an element from a Set
 
-この基本ルールは「あなたが見ていないものは削除できない」、そして
-context はRiakにあなたが実際に見たものを伝えます。Javaクライアントを除
-き、全ての公式Riakクライアントは不透明contextを扱えます。詳細は
-[ドキュメント](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Data-Types-and-Context)
-をご覧ください。
+The basic rule is "you cannot remove something you haven't seen", and
+the context tells Riak what you've actually seen. All of the official
+Basho clients, with the exception of the Java client, handle opaque
+contexts for you. Please see the
+[documentation](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Data-Types-and-Context)
+for more details.
 
-Mapに関する既知の不具合が２つあります。 後述する **既知の不具合** に目
-を通してください。
+Please see **Known Issues** below for two known issues with Riak maps.
 
+### Reduced sibling creation
 
-### sibling の抑制
+In previous versions of Riak, it was trivial for even well-behaved
+clients to cause a problem called "sibling explosion." In essence,
+retried or interleaved writes could cause the number of sibling values
+to grow without bound, even if clients resolved siblings before writing.
+This occurred because while the vector clock was attached and properly
+advanced for each write, causality information was missing from each
+sibling value, meaning that values originating from the same write might
+be duplicated.
 
-以前のバージョンのRiakでは行儀の良いクライアントでさえ、"sibling
-explosion"と呼ばれる問題を引き起こすことが普通でした。本質的には、リト
-ライや入れ子になった書き込みは、クライアントが書き込む前にsiblingsを解
-決したとしても、際限の無いsibling増加をもたらす可能性がありました。
-vector clockは各書き込みに付与され、クロックは正確に進みますが、各
-siblings値に対する因果関係の情報が失われることにより、この問題が発生し
-ていました。同じ書き込みを起源とする値が重複する可能性があったのです。
-
-Riak 2.0ではこの問題に関する Preguiça、Baquero らの
-[研究](http://arxiv.org/abs/1011.5808) と
-[プロトタイプ](https://github.com/ricardobcl/Dotted-Version-Vectors) の
-成果を活かし、これに対処しました。各 sibling の書き込みイベントを表すマー
-カー("dot" と呼びます)を付与することにより、siblingsは **実際の並列数
-** までしか上昇しません。つまり、オブジェクトの書き込み回数や、マージ回
-数、他のクラスタへの複製回数には関係しなくなりました。さらなる情報は
-[Dotted Version Vectors](http://docs.basho.com/riak/2.0.0/theory/concepts/dotted-version-vectors/)
-のドキュメント参照ください。
+In Riak 2.0, we have drawn on [research](http://arxiv.org/abs/1011.5808)
+and [a prototype](https://github.com/ricardobcl/Dotted-Version-Vectors)
+by Preguiça, Baquero et al that addresses this issue. By attaching
+markers for the event in which each was written (called a "dot"),
+siblings will only grow to the number of **truly concurrent** writes,
+not in relation to the number of times the object has been written,
+merged, or replicated to other clusters. More information can be found
+in our [Dotted Version
+Vectors](http://docs.basho.com/riak/2.0.0/theory/concepts/dotted-version-vectors/)
+document.
 
 ### riak_control
 
-* [Ring availabilityページの追加。既存ringページの破棄と問題のあるring状態の表示](https://github.com/basho/riak_control/pull/91)
-* [ロードインジケータによるページ遷移の修正](https://github.com/basho/riak_control/pull/159)
+* [Add ring availability page, which deprecates existing ring page and shows problematic ring states.](https://github.com/basho/riak_control/pull/91)
+* [Fix page transitions with loading indicators](https://github.com/basho/riak_control/pull/159)
 
 ### Search 2 (Yokozuna)
 
-Riak Search は、設計から完全に仕切りなおされました。
-それは Yokozuna というコードネームで、開発中にメンテナンスされていた個別の
-[リリースノート](https://github.com/basho/yokozuna/blob/develop/docs/RELEASE_NOTES.md)
-があります。Riak 2.0の新しい検索機能に関連する情報はこちらでご覧ください。
-さらに3つの公式ドキュメントがあります。
+The brand new and completely re-architected Riak Search, codenamed
+Yokozuna, [kept its own release
+notes](https://github.com/basho/yokozuna/blob/develop/docs/RELEASE_NOTES.md)
+while it was being developed. Please read there for the most relevant
+information about Riak 2.0's new search. Additional official
+documentation can be found in the following three docs:
 
 * [Using Search](http://docs.basho.com/riak/2.0.0/dev/using/search/)
 * [Search Details](http://docs.basho.com/riak/2.0.0/dev/advanced/search/)
@@ -185,229 +558,226 @@ Riak Search は、設計から完全に仕切りなおされました。
 
 ### Strong Consistency
 
-Riak の新しい Strong Consistency 機能はオープンソースとなっており、
-Riak Enterprise ではサポートされていません。
-公式ドキュメントは次のとおりです。
+Riak's new strong consistency feature is currently an open source only feature and is not yet commercially supported. Official documentation on this feature can be found in the following docs:
 
 * [Using Strong Consistency](http://docs.basho.com/riak/2.0.0/dev/advanced/strong-consistency/)
 * [Managing Strong Consistency](http://docs.basho.com/riak/2.0.0/ops/advanced/strong-consistency)
 * [Strong Consistency](http://docs.basho.com/riak/2.0.0/theory/concepts/strong-consistency/)
 
-さらに深い技術的な情報はインターナルなドキュメントを参照ください。
-[ここ](https://github.com/basho/riak_ensemble/blob/wip/riak-2.0-user-docs/riak_consistent_user_docs.md)
-と [ここ](https://github.com/basho/riak_ensemble/blob/wip/riak-2.0-user-docs/riak_consistent_user_docs.md).
-にあります。
+For more in-depth technical material, see our internal documentation
+[here](https://github.com/basho/riak_ensemble/blob/wip/riak-2.0-user-docs/riak_consistent_user_docs.md)
+and [here](https://github.com/basho/riak_ensemble/blob/wip/riak-2.0-user-docs/riak_consistent_user_docs.md).
 
-また、[既知の問題](http://docs.basho.com/riak/2.0.0/ops/advanced/strong-consistency/#Known-Issues)
-に目を通すことを強く推奨します。
+We also strongly advise you to see the list of [known
+issues](http://docs.basho.com/riak/2.0.0/ops/advanced/strong-consistency/#Known-Issues).
 
 ### Security
 
-Riak 2.0 で認証、認可機能を追加されました。これは異なる環境への誤接続防
-止（例：開発中のアプリケーションを本番のクラスタに繋いでしまう）や、悪
-意のある攻撃への防衛策に役立ちます。無論、依然としてRiakをセキュアでな
-いネットワークへ直接公開すべきではありません。
+Version 2.0 adds support for authentication and authorization to Riak.
+This is useful to prevent accidental collisions between environments
+(e.g., pointing application software under active development at the
+production cluster) and offers protection against malicious attack,
+although Riak still should not be exposed directly to any unsecured
+network.
 
-Bashoのドキュメントサイトには
-[この新機能の詳細な説明](http://docs.basho.com/riak/2.0.0/ops/running/authz/)
-があります。またsecurity機能を有効化する際にいくつかの重要な注意点があ
-ります：
+Basho's documentation website includes [extensive coverage of the new
+feature](http://docs.basho.com/riak/2.0.0/ops/running/authz/). Several
+important caveats when enabling security:
 
-* まだ監査機能はサポートされていません。これは今後のロードマップに含ま
-  れます。
-* ２つの廃止予定の機能はsecurityを有効化すると動作しません。（link
-  walking、および旧riak search）
-* securityが有効な際に、MapReduceジョブに対して公開されるErlangモジュー
-  ルに制限があります。
-  その制限は、
-  [ここ](http://docs.basho.com/riak/2.0.0/ops/running/authz/#Security-Checklist)
-  で説明されています。
-* securityを有効化する場合はアプリケーション側の対応が必要です。対応の選択肢は、
-  設定変更中のサーバ応答の違いに対し適切に振る舞よう設計するか、
-  **もしくは** セキュリティ有効化前にアプリケーションを一旦停止させ、有効化
-  後にセキュリティ機能をサポートしたアプリケーションのバージョンをオン
-  ラインに戻すことです。
+* There is no support yet for auditing. This is on the roadmap for a
+  future release.
+* Two deprecated features will not work if security is enabled: link
+  walking and Riak's original full-text search tool.
+* There are restrictions on Erlang modules exposed to MapReduce jobs
+  when security is enabled. Those are documented
+  [here](http://docs.basho.com/riak/2.0.0/ops/running/authz/#Security-Checklist).
+* Enabling security requires that applications be designed to transition
+  gracefully based on the server response **or** applications will
+  need to be halted before security is enabled and brought back online
+  with support for the new security features.
 
 ### Packaging / Supported Platforms
 
-2.0 のサポートリストへ多くのプラットフォームが追加されました。
+A number of platforms were added to our supported list for 2.0:
 
 * FreeBSD 10, with new pkgng format
 * SUSE SLES 11.2
 * Ubuntu 14.04 ('trusty')
 * CentOS/RHEL 7
 
-その他、1.4 から既にサポートされていたプラットフォームで更新されたものがあります。
+Other already supported platforms have been updated from 1.4:
 
-* Fedora packages went from a Fedora 17, to Fedora 19 base
+* Fedora packages went from a Fedora 17 to Fedora 19 base
 * SmartOS continued to support 1.8 and 13.1 datasets, but dropped 1.6
-
 
 ### Apt/Yum Repositories
 
-我々はaptとyumリポジトリを2.0のユーザーへ提供していますが、パッケージを
-提供するサービスへの移行をお願いしています。
+We will still provide apt and yum repositories for our users for 2.0,
+but we are extremely happy to be using a service to provide this for our
+customers moving forward.
 
-**[Packagecloud](https://packagecloud.io/)** はapt/yumリポジトリのホス
-ティングに関わる多くのの苦痛を取り払うことはもちろん、ユーザーのみなさ
-んに多くの機能を提供する素晴らしいサービスです。みなさんにとって最も重
-要な機能はユニバーサルインストーラです。これは対象のOSとバージョンを検
-知し、適切なリポジトリとセキュリティキーの自動インストールを提供します。
+**[Packagecloud](https://packagecloud.io/)** is an awesome service which
+takes much of the pain out of hosting our own apt/yum repositories
+as well as adding a lot more features for you as a user. The most
+important feature for you, will be the universal installer they
+provide that will detect your OS/Version and install the proper
+repositories and security keys automatically.
 
-2.0 パッケージは Packagecloud にホストされる一方で、いまのところ 1.4 パッ
-ケージは[apt|yum].basho.comに残ります。我々は追加機能によるメリットが、
-みなさんのツール内のURL更新に伴うあらゆる苦痛を補うことを願っています。
-このような変更をして申し訳ありませんが、これは今後への良き投資であると
-考えています。
+For now, 1.4 packages will remain at [apt|yum].basho.com, while 2.0
+packages will be hosted on Packagecloud. We hope the added features will
+make up for any pain we are causing to your tooling with an update in
+URLs. We apologize for the change, but think it is a good investment
+going forward.
 
 ## Client libraries
 
-ほぼすべての
-[Basho サポートのクライアントライブラリ](http://docs.basho.com/riak/latest/dev/using/libraries/)
-は、2.0 用に更新されています。
+Most [Basho-supported client
+libraries](http://docs.basho.com/riak/latest/dev/using/libraries/) have
+been updated for 2.0:
 
 * [Java](https://github.com/basho/riak-java-client)
 * [Ruby](https://github.com/basho/riak-ruby-client)
 * [Python](https://github.com/basho/riak-python-client)
 * [Erlang](https://github.com/basho/riak-erlang-client)
 
-PHP ライブラリはまだ更新が終わっていません。予定は決まっていません。
+The PHP library has not yet been updated for 2.0. A delivery date will be
+forthcoming.
 
 ### Bitcask
 
-* 今回データ走査に使うイテレータの複数稼働が可能になりました。以前、
-  Bitcaskのデータ走査イテレータは一つだけで、これはAAEやfullsyncの処理
-  をブロックする可能性がありました。また本リリースでは、インメモリのキー
-  ディレクトリは複数のスナップショットが共存し、１つのエントリに複数の
-  値を持つように修正されました。これはイテレータが頻繁に使われる際に、
-  メモリを以前より消費することを意味します。
-* リスタート後に削除済みの値が復活する問題を修正。新しいtombstoneフォー
-  マットと削除アルゴリズムに対応するため、ヒントファイルとデータファイ
-  ルのフォーマットが変更されました。マージアルゴリズムの削除マークが付
-  与されたファイルは、今回setuidビットの代わりにexecutionビットがセット
-  されます。フォーマット変更により、ダウングレードする場合は旧バージョ
-  ンのRiakは新フォーマットのファイル読み込みに失敗するため、ヒントファ
-  イルを削除する必要があります。Riakは新フォーマットファイルを再生成す
-  るため、全てのBitcaskファイルの段階的なマージを実施します。このマージ
-  はmerge window設定に従い、ノードが高負荷にならないように分割して実行
-  されます。マージは完全にスキップもしくは調整する設定項目がいくつか用
-  意されています。Bitcaskはマージしてもしなくても正常に動作します。以前
-  の旧フォーマットファイルの領域解放よりも、Bitcaskが多くの時間を必要と
-  するようになるため、できるだけ早くディスクスペースを解放することがこ
-  の設定の狙いです。
-* 起動中のマージに関する問題を修正。マージは `riak_kv` サービスの起動ま
-  で延期されます。
+* It is now possible to use multiple ongoing data iterators. Previously,
+  Bitcask would only allow one iterator over the data, which can block
+  AAE or fullsync operations. For this release, the in-memory key
+  directory has been modified to hold multiple values of an entry so
+  that multiple snapshots can co-exist. This means that it will consume
+  more memory when iterators are used frequently.
+* Fixed a long-standing issue whereby deleted values would come back to
+  life after restarting Bitcask. Both hint and data file formats
+  required changes to accommodate a new tombstone format and deletion
+  algorithm. Files marked for deletion by the merge algorithm will now
+  have the execution bit set instead of the setuid bit. In case of a
+  downgrade, hint files should be removed as they will fail to load on
+  an older version. Riak will perform a gradual merge of all Bitcask
+  files to re-generate them in the new format. This merge will obey the
+  merge window settings and will be performed in chunks to avoid
+  swamping a node. There are several advanced knobs available that
+  enable you to completely skip or tune this merge. Bitcask will operate
+  normally whether this merge happens or not. Its purpose is to reclaim
+  disk space as fast as possible, as Bitcask will take much longer than
+  before reclaiming space from old format files.
+* Fixed several problems with merges during startup. Merging will now be
+  postponed until the `riak_kv` service is up.
 
 ### HTTP API
 
-歴史的に、Basho のライブラリは Riak アクセスのための HTTP とプロトコルバッファ
-をどちらもサポートしてきました。
-最近まで、HTTP はすべての Riak の機能をサポートしている強みがありました。
+Historically, Basho libraries have supported both HTTP and Protocol
+Buffers for access to Riak. Until recently, HTTP had an edge in support
+for all of Riak's features.
 
-今ではプロトコルバッファが機能的に同等となり、またプロトコルバッファが
-一般にはより速いことから、Basho は **クライアントライブラリだけからは**
-HTTP サポートを取り除きつつあります。
-データベースとしての HTTP API を削除する予定はありません。
+Now that Protocol Buffers have reached feature parity, and because
+Protocol Buffers are generally faster, Basho is removing HTTP support
+**from the client libraries** only. There are no plans to remove the
+HTTP API from the database.
 
-Python クライアントは HTTP サポートを残していますが、Java、Ruby、
-Erlang は HTTP をサポートしません。
+The Python client retains HTTP support, but Java, Ruby, and Erlang do
+not.
 
-### 廃止予定の機能
+### Deprecation Notices
 
-Riak 2.0 はいくつかの機能を廃止予定とします。
-後述する **廃止される機能** もご覧ください。
+Riak 2.0 marks the beginning of the end for several features. These
+features are still available in version 2.0 but will be disabled in a
+future version. **We do not recommend using these features in version
+2.0**.  In addition to these soon-to-be-terminated features, there are a
+few features that have already been removed in Riak 2.0. A listing can
+be found in the **Termination Notices** section below.
 
 * [Link Walking](http://docs.basho.com/riak/latest/dev/using/link-walking/)
-  は廃止予定となり、security が有効化されると動作しません。
+  is deprecated and will not work if security is enabled.
 * [Key Filters](http://docs.basho.com/riak/latest/dev/using/keyfilters/)
-  は廃止予定です。key listing は、その負荷のため、プロダクション環境で
-  使うべきではありません。たとえば、キーインデックスを Riak のバリューとして
-  保存するほうが良い選択肢です。
-  (このようなインデックスには、新しい
+  are deprecated; we strongly discourage key listing in production due
+  to the overhead involved, so it's better to maintain key indexes as
+  values in Riak (see also our new
   [set data type](http://docs.basho.com/riak/2.0.0/dev/using/data-types/#Sets)
-  が有用です)
-* JavaScript MapReduce は廃止予定です。移行を手助けするため、
+  as a useful tool for such indexes).
+* JavaScript MapReduce is deprecated; we have expanded our
   [Erlang MapReduce](http://docs.basho.com/riak/2.0.0/dev/advanced/mapreduce/)
-  ドキュメントはすでに拡充済みです。
-* Riak Search 1.0 は新しい Solr ベースの
-  [Riak Search 2.0](http://docs.basho.com/riak/2.0.0/dev/advanced/search/)
-  を選択したため、段階的に廃止されます。
-  バージョン 1.0 は security が有効化されると動作しません。
-* v2 レプリケーション (Riak Enterprise の機能です)は v3 に置き換えられ、
-  将来削除予定です。
-* レガシーゴシップ(Riak の最初のゴシップ機構でしたが、1.0 で置き換えられました)
-  は将来削除予定です。
-  その時点で 1.0 以前の Riak ノードはクラスタに join 出来なくなります。
-* レガシー vnode ルーティング (サーバ間のリクエスト管理のための初期の仕
-  組み)は廃止予定です。もし `vnode_routing` が Riak capability システム
-  により `legacy` に設定されている場合、将来のアップグレードでの問題を
-  防ぐため、それを取り除くべきです。
-* 過去に Riak の内部 API (例 `riak:local_client/1`) を使っているユーザ
-  がいましたが、この API はいつでも変更される可能性があります。代わりに
-  [Erlang client library](http://github.com/basho/riak-erlang-client/)
-  (もしくは
-  [いずれかのクライアントライブラリ](http://docs.basho.com/riak/latest/dev/using/libraries/))
-  を利用することを強く推奨します。
+  documentation to assist with the transition.
+* Riak Search 1.0 is being phased out in favor of the new Solr-based
+  [Riak Search 2.0](http://docs.basho.com/riak/2.0.0/dev/advanced/search/).
+  Version 1.0 will not work if security is enabled.
+* v2 replication (a component of Riak Enterprise) has been superseded
+  by v3 and will be removed in the future.
+* Legacy gossip (Riak's original gossip mechanism, replaced in 1.0)
+  will be removed in the future, at which point pre-1.0 Riak nodes
+  will not be able to join a cluster.
+* Legacy vnode routing (an early mechanism for managing requests
+  between servers) is deprecated. If `vnode_routing` is set to
+  `legacy` via Riak's capability system, it should be removed to
+  prevent upgrade problems in the future.
+* Some users in the past have used Riak's internal API (e.g.,
+  `riak:local_client/1`); this API may change at any time, so we
+  strongly recommend using our [Erlang client
+  library](http://github.com/basho/riak-erlang-client/) (or [one of the
+  other libraries](http://docs.basho.com/riak/latest/dev/using/libraries/)
+  we support) instead.
 
-## 廃止される機能
+## Termination Notices
 
-* `riak-admin backup` は廃止されました。バックアップとリストアについて
-  の詳細な手順は
-  [ドキュメント](http://docs.basho.com/riak/2.0.0/ops/running/backups/)
-  をご覧ください。
+* `riak-admin backup` has been disabled; see
+  [our documentation](http://docs.basho.com/riak/2.0.0/ops/running/backups/)
+  for a detailed look at running backup and restore operations.
 * [Client ID-based vector clocks](http://docs.basho.com/riak/1.4.10/ops/advanced/configs/configuration-files/#-code-riak_kv-code-Settings)
-  は削除されました。
-  ノードベースの vector clock がより好ましいことから、`vnode_vclocks` 設定により
-  この機能は以前からデフォルトで停止されていました。
-* LevelDB の設定から `cache_size` と `max_open_files` が廃止されました。
-  代わりに `leveldb.maximum_memory.percent` を使ってください。詳細は
+  have been removed; they were previously turned off by default in
+  favor of node-based vector clocks via the `vnode_vclocks`
+  configuration flag.
+* LevelDB configuration values `cache_size` and `max_open_files` have
+  been disabled in favor of `leveldb.maximum_memory.percent`. See
   [Configuring eLevelDB](http://docs.basho.com/riak/2.0.0/ops/advanced/backends/leveldb/#Configuring-eLevelDB)
-  をご覧ください。
+  in our documentation.
 
-## 既知の問題
+## Known Issues
 
-バージョン 2.0 での既知の問題は
-[この Riak wiki ページ](https://github.com/basho/riak/wiki/2.0-known-issues). で
-完全なリストを見ることが出来ます。
+A complete listing of known issues in version 2.0 can be found on [this
+Riak wiki page](https://github.com/basho/riak/wiki/2.0-known-issues).
 
-## アップグレードノート
+## Upgrade Notes
 
-2.0 へアップグレードする完全なドキュメントは
-[公式のページ](http://docs.basho.com/riak/2.0.0/upgrade-v20/) にあります。
-以下の情報はそれを補完するものです。
+A full guide to upgrading to 2.0 can be found [in the official
+docs](http://docs.basho.com/riak/2.0.0/upgrade-v20/). The information
+below is supplementary.
 
-### インストール後のダウングレード
+### Downgrading After Install
 
-**重要**: 2.0 は主要な新機能を導入します。そのうちのいくつかは
-Riak 1.x と互換ではありません。
-そのような機能は
-[bucket types](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/)
-に依存しています。
-バケットタイプが *ひとつでも* 作成され有効化された後には、ダウングレードは
-できません。
+**Important note**: 2.0 introduces major new features which are
+incompatible with Riak 1.x. Those features depend on [bucket
+types](http://docs.basho.com/riak/2.0.0/dev/advanced/bucket-types/);
+once *any* bucket type has been created and activated, downgrades are no
+longer possible.
 
-Riak 1.x へダウングレードする前には、必要な手順についての情報のため
-[2.0 downgrade notes](https://github.com/basho/riak/wiki/2.0-downgrade-notes)
-を参照してください。
+Prior to downgrading to Riak 1.x, you should also see our [2.0 downgrade
+notes](https://github.com/basho/riak/wiki/2.0-downgrade-notes) page for
+more information about necessary steps.
 
-#### 設定ファイル
+#### Configuration Files
 
-1.4 および以前の設定ファイル (`app.config` and `vm.args`) から2.0の
-新しい設定ファイルへの変換は自動でできません。以前
-の設定ファイル `app.config` と `vm.args` は、設定ファイルのディレクトリ
-内にあれば動作しますが、設定のカスタマイズ内容を `riak.conf` と
-`advanced.config` へ反映させ、今後の設定を簡単にすることをお勧めします。
-追加の情報は
-[configuration files documentation](http://docs.basho.com/riak/2.0.0/ops/advanced/configs/configuration-files/)
-にあります。
+There is no automated way to upgrade from the 1.4 and previous
+configuration (`app.config` and `vm.args`) to the new configuration
+system in 2.0 (`riak.conf`). Previous configurations will still work as
+long as your `app.config` and `vm.args` files are in the configuration
+directory, but we recommend converting your customizations into the
+`riak.conf` and `advanced.config` files to make configuration easier for
+you moving forward. More information can be found in our [configuration
+files
+documentation](http://docs.basho.com/riak/2.0.0/ops/advanced/configs/configuration-files/).
 
-## バグフィックス / 1.4.x からの変更
+## Bugfixes / Changes since 1.4.x
 
-下記のリストは1.4.x 2.0間でマージされた全てのPRです。2.0 で追加された次
-のリポジトリはこれに含みません。リストに加えてこれらのリポジトリからの
-全てのPRにも注意して下さい。
+The list below includes all PRs merged between the 1.4.x series and 2.0.
+It does not include the following repositories which were all added in
+the 2.0 cycle. Consider all PRs from these repos in addition to the
+list below.
 
-#### 2.0 で追加されたリポジトリ
+#### Added Repositories in 2.0
 
 * [**Canola** -  PAM driver for Erlang](https://github.com/basho/canola)
 * [**Cuttlefish** -  Riak's new configuration tool](https://github.com/basho/cuttlefish)
@@ -417,7 +787,7 @@ Riak 1.x へダウングレードする前には、必要な手順について�
 * [**riak_ensemble** -  Multi-Paxos framework in Erlang](https://github.com/basho/riak_ensemble)
 * [**Yokozuna** -  Riak Search 2, Riak + Solr](https://github.com/basho/yokozuna)
 
-#### マージ済PR
+#### Merged PRs
 
 * bitcask/103: [add optional key transformer to support new key formats](https://github.com/basho/bitcask/pull/103)
 * bitcask/104: [Improve bitcask iteration concurrency.](https://github.com/basho/bitcask/pull/104)
@@ -1107,6 +1477,7 @@ Riak 1.x へダウングレードする前には、必要な手順について�
 * sidejob/7: [Update tools.mk, add xref](https://github.com/basho/sidejob/pull/7)
 * sidejob/9: [Fix dialyzer warnings.](https://github.com/basho/sidejob/pull/9)
 * webmachine/166: [fix unit tests for Erlang/OTP R16](https://github.com/basho/webmachine/pull/166)
+
 
 ----
 [1] http://doi.acm.org/10.1145/2332432.2332497

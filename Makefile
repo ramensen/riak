@@ -6,6 +6,12 @@ ERLANG_BIN       = $(shell dirname $(shell which erl))
 REBAR           ?= $(BASE_DIR)/rebar
 OVERLAY_VARS    ?=
 
+RIAK_CORE_STAT_PREFIX = riak
+export RIAK_CORE_STAT_PREFIX
+
+EXOMETER_PACKAGES = "(basic)"
+export EXOMETER_PACKAGES
+
 $(if $(ERLANG_BIN),,$(warning "Warning: No Erlang found in your path, this will probably not work"))
 
 .PHONY: rel stagedevrel deps
@@ -297,5 +303,5 @@ package: distdir/$(PKG_ID).tar.gz
 export PKG_VERSION PKG_ID PKG_BUILD BASE_DIR ERLANG_BIN REBAR OVERLAY_VARS RELEASE
 
 # Package up a devrel to save time later rebuilding it
-pkg-devrel: devrel
+pkg-devrel: locked-deps devrel
 	tar -czf $(PKG_ID)-devrel.tar.gz dev/
