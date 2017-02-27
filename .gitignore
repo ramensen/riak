@@ -6,5 +6,3 @@ perfdev/
 ebin/
 apps/riak/.eunit
 apps/riak/.rebar
-
-erln8.config
